@@ -159,6 +159,9 @@ ROLEEOF
 ## MCP 활용 규칙
 - 디자인 파일은 ~/Projects 디렉터리에 저장
 
+## 건드리지 않는 영역
+- src/features/, src/utils/ — 서연 담당
+
 ## 산출물 경로
 - /docs/design/user-flow.md
 - /docs/design/component-spec.md
@@ -180,6 +183,12 @@ superpowers:systematic-debugging
 ## MCP 활용 규칙
 - PR 생성 전 반드시 테스트 통과 확인
 - 이슈 댓글은 작업 시작 시와 완료 시 2회 작성
+- 구현 완료 후 git add, commit, push까지 수행
+
+## 건드리지 않는 영역
+- src/styles/, assets/ — 수아 담당
+- docs/ — 민준 담당
+- 충돌 발견 시 독단 해결 금지, 민준에게 보고
 ROLEEOF
 
     cat > ~/.claude/roles/taeyang.md << 'ROLEEOF'

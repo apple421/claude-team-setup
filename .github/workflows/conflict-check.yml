@@ -1,0 +1,63 @@
+name: 충돌 확인
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  conflict-check:
+    name: main 브랜치 충돌 감지
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃 (전체 히스토리)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: main 브랜치 fetch
+        run: git fetch origin main
+
+      - name: 충돌 감지
+        id: check
+        run: |
+          BASE=$(git merge-base HEAD origin/main)
+          BRANCH="${{ github.head_ref }}"
+
+          # dry-run 머지로 충돌 파일 목록 수집
+          git config user.email "ci@github-actions"
+          git config user.name "GitHub Actions"
+
+          if git merge --no-commit --no-ff origin/main 2>&1; then
+            git merge --abort 2>/dev/null || true
+            echo "conflicted=false" >> "$GITHUB_OUTPUT"
+            echo "files=" >> "$GITHUB_OUTPUT"
+          else
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U | tr '\n' ', ' | sed 's/,$//')
+            git merge --abort 2>/dev/null || true
+            echo "conflicted=true" >> "$GITHUB_OUTPUT"
+            echo "files=$CONFLICT_FILES" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 충돌 없음 — 통과
+        if: steps.check.outputs.conflicted == 'false'
+        run: echo "✅ main 브랜치와 충돌 없음"
+
+      - name: 충돌 있음 — 실패 처리
+        if: steps.check.outputs.conflicted == 'true'
+        run: |
+          echo "❌ 충돌 감지: ${{ steps.check.outputs.files }}"
+          exit 1
+
+      - name: Telegram 알림 — 충돌 감지
+        if: steps.check.outputs.conflicted == 'true'
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="⚠️ *충돌 감지*
+          PR: \`${{ github.event.pull_request.title }}\`
+          브랜치: \`${{ github.head_ref }}\` → \`main\`
+          충돌 파일: \`${{ steps.check.outputs.files }}\`
+          작성자: ${{ github.event.pull_request.user.login }}
+          확인: ${{ github.event.pull_request.html_url }}"
