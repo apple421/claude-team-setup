@@ -1,0 +1,77 @@
+name: 일일 보고
+
+on:
+  schedule:
+    - cron: "0 0 * * *"  # 매일 00:00 UTC = 09:00 KST
+  workflow_dispatch:      # 수동 실행 가능
+
+jobs:
+  daily-report:
+    name: 일일 현황 보고
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 날짜 설정 (KST)
+        id: date
+        run: |
+          echo "kst=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" >> "$GITHUB_OUTPUT"
+          echo "today=$(TZ=Asia/Seoul date '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+          echo "yesterday=$(TZ=Asia/Seoul date -d 'yesterday' '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: 최근 커밋 수집
+        id: commits
+        run: |
+          COUNT=$(git log --oneline --since="24 hours ago" | wc -l | tr -d ' ')
+          LOG=$(git log --oneline --since="24 hours ago" --pretty=format:"• %s (%an)" | head -10)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          {
+            echo "log<<EOF"
+            echo "$LOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: PR/이슈 현황 수집
+        id: github_stats
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OPEN_PRS=$(gh pr list --state open --json number --jq 'length' 2>/dev/null || echo 0)
+          MERGED=$(gh pr list --state merged --json mergedAt \
+            --jq "[.[] | select(.mergedAt > \"${{ steps.date.outputs.yesterday }}\") ] | length" 2>/dev/null || echo 0)
+          OPEN_ISSUES=$(gh issue list --state open --json number --jq 'length' 2>/dev/null || echo 0)
+          echo "open_prs=$OPEN_PRS" >> "$GITHUB_OUTPUT"
+          echo "merged=$MERGED" >> "$GITHUB_OUTPUT"
+          echo "open_issues=$OPEN_ISSUES" >> "$GITHUB_OUTPUT"
+
+      - name: Telegram 일일 보고 전송
+        run: |
+          COMMITS_SECTION=""
+          if [ "${{ steps.commits.outputs.count }}" -gt "0" ]; then
+            COMMITS_SECTION="
+          📝 *최근 24시간 커밋 (${{ steps.commits.outputs.count }}개)*
+          ${{ steps.commits.outputs.log }}"
+          else
+            COMMITS_SECTION="
+          📝 최근 24시간 커밋 없음"
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="☀️ *일일 보고 — ${{ steps.date.outputs.kst }} (KST)*
+
+          📦 *레포*: \`${{ github.repository }}\`
+          🌿 *기본 브랜치*: \`${{ github.ref_name }}\`
+
+          📊 *GitHub 현황*
+          • 열린 PR: ${{ steps.github_stats.outputs.open_prs }}개
+          • 어제 머지된 PR: ${{ steps.github_stats.outputs.merged }}개
+          • 열린 이슈: ${{ steps.github_stats.outputs.open_issues }}개
+          $COMMITS_SECTION
+
+          🔗 ${{ github.server_url }}/${{ github.repository }}"

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  validate:
+    name: 스크립트 검증
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: bash 문법 검사
+        run: |
+          bash -n setup-team.sh
+          bash -n triple-crown.sh
+          bash -n team-status.sh
+
+      - name: shellcheck 설치 및 검사
+        run: |
+          sudo apt-get install -y shellcheck
+          shellcheck -e SC2148 setup-team.sh triple-crown.sh team-status.sh || true
+
+      - name: 실행 권한 확인
+        run: |
+          for f in setup-team.sh triple-crown.sh team-status.sh; do
+            [ -f "$f" ] && echo "✅ $f 존재" || echo "❌ $f 없음"
+          done
+
+      - name: Telegram 알림 — 성공
+        if: success()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="✅ *CI 통과*
+          레포: \`${{ github.repository }}\`
+          브랜치: \`${{ github.ref_name }}\`
+          커밋: \`${{ github.sha }}\`
+          트리거: ${{ github.event_name }}
+          결과: 모든 검증 통과"
+
+      - name: Telegram 알림 — 실패
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="❌ *CI 실패*
+          레포: \`${{ github.repository }}\`
+          브랜치: \`${{ github.ref_name }}\`
+          커밋: \`${{ github.sha }}\`
+          트리거: ${{ github.event_name }}
+          확인: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
